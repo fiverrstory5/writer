@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Typing Studio</title>
+    <!-- Favicon & App Icons -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <link rel="shortcut icon" href="favicon.ico">
+    <meta name="theme-color" content="#111215">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Minimal Floating Top Toolbar -->
+    <div class="top-bar">
+        <div class="bar-left">
+            <!-- Brand Logo -->
+            <div class="brand-logo" title="Voice Typing Studio">
+                <img src="favicon.svg" alt="Voice Typing Logo" class="brand-icon">
+            </div>
+
+            <!-- Main Microphone Toggle Button -->
+            <button class="btn btn-mic" id="btnMic" title="Toggle Voice Typing (Alt + V)">
+                <span id="micIcon" class="mic-dot"></span>
+                <span id="micLabel">Start</span>
+            </button>
+
+            <!-- Language Dropdown -->
+            <div class="lang-dropdown" title="Speech Language">
+                <select id="selectMicLang">
+                    <option value="hi-IN" selected>Hindi</option>
+                    <option value="en-IN">English (IN)</option>
+                    <option value="en-US">English (US)</option>
+                </select>
+            </div>
+
+            <!-- Auto-Replace Rules Modal Trigger -->
+            <button class="btn btn-rules" id="btnOpenRules" title="Word Replacements">
+                <span>Dictionary</span>
+                <span class="rules-badge" id="rulesCountBadge">0</span>
+            </button>
+        </div>
+
+        <div class="bar-right">
+            <!-- Copy Text Button -->
+            <button class="btn btn-action" id="btnCopy" title="Copy text">
+                📋 Copy
+            </button>
+
+            <!-- Download Text File -->
+            <button class="btn btn-action" id="btnDownload" title="Download text">
+                💾 Save
+            </button>
+
+            <!-- Clear Workspace Button -->
+            <button class="btn btn-clear" id="btnClear" title="Clear workspace">
+                🧹 Clear
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Voice Typing Workspace -->
+    <div class="workspace" id="scrollContainer">
+        <div class="editor" id="editor" contenteditable="true" autofocus
+             placeholder="Speak or type your notes here..."></div>
+    </div>
+
+    <!-- Bottom Status & Statistics Bar -->
+    <div class="bottom-bar">
+        <div class="stats-left">
+            <span id="lblWordCount">0 words</span>
+            <span class="dot-separator">•</span>
+            <span id="lblCharCount">0 characters</span>
+        </div>
+        <div class="status-right">
+            <span class="status-pill" id="lblStatus">Ready</span>
+        </div>
+    </div>
+
+    <!-- Smart Word Auto-Replacement Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <span>Dictionary</span>
+                </div>
+                <button class="modal-close" id="btnCloseRules" title="Close (Esc)">✕</button>
+            </div>
+            <div class="modal-body">
+                <!-- Add New Rule Form Card -->
+                <div class="add-rule-card">
+                    <div class="form-row">
+                        <input type="text" id="inputFrom" class="input-rule" placeholder="Spoken triggers (e.g. word1, word2)">
+                    </div>
+                    <div class="form-row form-row-bottom">
+                        <input type="text" id="inputTo" class="input-rule" placeholder="Replace with (e.g. Word)">
+                        <select id="selectRuleMode" class="select-rule-mode" title="Mode">
+                            <option value="auto">⚡ Auto</option>
+                            <option value="suggest">💡 Suggest</option>
+                        </select>
+                        <button class="btn-add-rule" id="btnAddRule">+ Add</button>
+                    </div>
+                </div>
+
+                <!-- Existing Rules List -->
+                <div class="rules-list" id="rulesListContainer">
+                    <!-- Populated dynamically via JS -->
+                </div>
+
+                <!-- Modal Footer / Backup Tools -->
+                <div class="modal-footer-tools">
+                    <button class="btn-tool-secondary" id="btnExportRules" title="Export rules backup">
+                        📥 Export
+                    </button>
+                    <button class="btn-tool-secondary" id="btnImportRules" title="Import rules backup">
+                        📤 Import
+                    </button>
+                    <input type="file" id="fileImportRules" accept=".json" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sleek Delete Confirmation Modal -->
+    <div class="confirm-overlay" id="confirmOverlay">
+        <div class="confirm-card">
+            <div class="confirm-icon">⚠️</div>
+            <div class="confirm-title" id="confirmTitle">Delete this rule?</div>
+            <div class="confirm-desc" id="confirmDesc">This action cannot be undone.</div>
+            <div class="confirm-actions">
+                <button class="btn-confirm-cancel" id="btnConfirmCancel">Cancel</button>
+                <button class="btn-confirm-delete" id="btnConfirmDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Contextual Action Menu (Selection & Caret) -->
+    <div class="floating-menu" id="floatingMenu" role="toolbar" aria-label="Quick Actions">
+        <button class="floating-btn" id="btnFloatCopy" title="Copy selection">📋 Copy</button>
+        <button class="floating-btn" id="btnFloatPaste" title="Paste clipboard">📥 Paste</button>
+        <button class="floating-btn floating-btn-danger" id="btnFloatDelete" title="Delete selection">🗑 Delete</button>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toastMessage">Copied</div>
+
+    <!-- Core Voice Typing Application Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
