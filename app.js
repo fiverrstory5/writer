@@ -49,6 +49,12 @@ let pendingDeleteCallback = null;
 let savedSelectionRange = null;
 const PAUSE_DURATION_MS = 4000; // 4 seconds silence countdown before comma converts to full stop
 
+// 1-Minute Silence Auto-Stop & Clear Protection State
+let silenceTimer = null;
+let lastSpeechTimestamp = 0;
+const SILENCE_TIMEOUT_MS = 60 * 1000; // 1 minute inactivity auto-stop
+let clearConfirmTimeout = null;
+
 // Auto-Replace Dictionary Key & Starter Multi-Alias Rules
 const STORAGE_KEY = 'voice_typing_studio_rules';
 const DEFAULT_RULES = [
@@ -496,6 +502,44 @@ fileImportRules.addEventListener('change', (e) => {
 loadRules();
 
 // --------------------------------------------------------------------------
+// 1.5 Inactivity Silence Timer (1 Minute Auto-Stop)
+// --------------------------------------------------------------------------
+function resetSilenceTimer() {
+    lastSpeechTimestamp = Date.now();
+    scheduleSilenceCheck();
+}
+
+function scheduleSilenceCheck() {
+    if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+    }
+    if (!isListening) return;
+
+    const elapsed = Date.now() - lastSpeechTimestamp;
+    const remaining = Math.max(0, SILENCE_TIMEOUT_MS - elapsed);
+
+    silenceTimer = setTimeout(() => {
+        if (!isListening) return;
+        const currentElapsed = Date.now() - lastSpeechTimestamp;
+        if (currentElapsed >= SILENCE_TIMEOUT_MS) {
+            stopVoiceTyping();
+            showToast('Microphone auto-stopped after 1 minute of silence');
+            lblStatus.textContent = 'Auto-stopped (1m silence)';
+        } else {
+            scheduleSilenceCheck();
+        }
+    }, remaining);
+}
+
+function clearSilenceTimer() {
+    if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+    }
+}
+
+// --------------------------------------------------------------------------
 // 2. Continuous Voice Typing Engine (Google Speech Recognition)
 // --------------------------------------------------------------------------
 function initSpeechRecognition() {
@@ -517,6 +561,11 @@ function initSpeechRecognition() {
         micLabel.textContent = 'Listening...';
         lblStatus.textContent = `Listening (${selectMicLang.value})...`;
         lblStatus.classList.add('listening');
+        resetSilenceTimer();
+    };
+
+    recognition.onspeechstart = () => {
+        resetSilenceTimer();
     };
 
     recognition.onresult = (event) => {
@@ -530,6 +579,11 @@ function initSpeechRecognition() {
             } else {
                 interimTranscript += transcript;
             }
+        }
+
+        // Reset 1-minute silence timer on any detected voice
+        if (interimTranscript.trim() || finalTranscript.trim()) {
+            resetSilenceTimer();
         }
 
         // Live interim feedback
@@ -566,8 +620,11 @@ function initSpeechRecognition() {
         if (isListening) {
             try {
                 recognition.start();
+                // Keep the 1-minute silence timer ticking across Chromium internal speech cutoffs
+                scheduleSilenceCheck();
             } catch (e) {}
         } else {
+            clearSilenceTimer();
             resetMicUI();
         }
     };
@@ -576,6 +633,42 @@ function initSpeechRecognition() {
 // --------------------------------------------------------------------------
 // Smart Punctuation & Editor Helpers
 // --------------------------------------------------------------------------
+function scrollActiveTextToCenter() {
+    if (!scrollContainer) return;
+
+    // 1. If interim preview exists, scroll it smoothly to the center
+    if (interimSpan && editor.contains(interimSpan)) {
+        interimSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+
+    // 2. Locate the end of the text/content using DOM Range
+    if (editor.lastChild) {
+        try {
+            const range = document.createRange();
+            range.selectNodeContents(editor.lastChild);
+            range.collapse(false);
+            const rect = range.getBoundingClientRect();
+            const containerRect = scrollContainer.getBoundingClientRect();
+            if (rect.top > 0 || rect.bottom > 0) {
+                const offsetInContainer = rect.top - containerRect.top;
+                const targetScroll = scrollContainer.scrollTop + offsetInContainer - (containerRect.height / 2);
+                scrollContainer.scrollTo({
+                    top: Math.max(0, targetScroll),
+                    behavior: 'smooth'
+                });
+                return;
+            }
+        } catch (e) {}
+    }
+
+    // 3. Fallback to scrolling container
+    scrollContainer.scrollTo({
+        top: scrollContainer.scrollHeight,
+        behavior: 'smooth'
+    });
+}
+
 function getFullStopSymbol() {
     const lang = selectMicLang.value || 'hi-IN';
     return lang.startsWith('hi') ? '। ' : '. ';
@@ -627,7 +720,7 @@ function updateInterimPreview(text) {
         if (!editor.contains(interimSpan)) {
             editor.appendChild(interimSpan);
         }
-        interimSpan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        interimSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else {
         if (editor.contains(interimSpan)) {
             editor.removeChild(interimSpan);
@@ -670,8 +763,8 @@ function insertFinalText(rawText) {
 
     editor.appendChild(fragment);
 
-    // Auto-scroll to keep bottom visible while speaking
-    editor.scrollTop = editor.scrollHeight;
+    // Auto-scroll to keep active text comfortably centered with ample bottom breathing room
+    scrollActiveTextToCenter();
     updateStats();
 
     // Start 4-second countdown:
@@ -685,19 +778,24 @@ function startVoiceTyping() {
     if (!recognition) initSpeechRecognition();
     if (!recognition) return;
 
+    resetSilenceTimer();
     try {
         recognition.lang = selectMicLang.value;
         recognition.start();
     } catch (e) {
         try {
             recognition.stop();
-            setTimeout(() => recognition.start(), 200);
+            setTimeout(() => {
+                recognition.start();
+                resetSilenceTimer();
+            }, 200);
         } catch (err) {}
     }
 }
 
 function stopVoiceTyping() {
     isListening = false;
+    clearSilenceTimer();
     finalizeSentencePunctuation();
     if (recognition) {
         try {
@@ -798,8 +896,18 @@ btnDownload.addEventListener('click', () => {
     showToast('Saved');
 });
 
-// Clear
-btnClear.addEventListener('click', () => {
+// Clear Workspace (Double-Click Protection & Confirmation State)
+function resetClearButtonState() {
+    if (clearConfirmTimeout) {
+        clearTimeout(clearConfirmTimeout);
+        clearConfirmTimeout = null;
+    }
+    btnClear.classList.remove('confirm-state');
+    btnClear.innerHTML = '🧹 Clear';
+}
+
+function executeClear() {
+    resetClearButtonState();
     hideFloatingMenu();
     if (punctuationTimer) {
         clearTimeout(punctuationTimer);
@@ -809,7 +917,40 @@ btnClear.addEventListener('click', () => {
     editor.innerHTML = '';
     updateStats();
     editor.focus();
-    showToast('Cleared');
+    showToast('Workspace cleared');
+}
+
+// Single click prompts for double-click / second click confirmation
+btnClear.addEventListener('click', () => {
+    const text = editor.innerText || '';
+    if (!text.trim()) {
+        resetClearButtonState();
+        showToast('Workspace is already empty');
+        return;
+    }
+
+    if (btnClear.classList.contains('confirm-state')) {
+        // Second click within confirmation window!
+        executeClear();
+    } else {
+        // First click: enter confirmation state
+        btnClear.classList.add('confirm-state');
+        btnClear.innerHTML = '⚠️ Click again to clear';
+        showToast('Double-click or click again to confirm clear');
+
+        clearConfirmTimeout = setTimeout(() => {
+            resetClearButtonState();
+        }, 2500);
+    }
+});
+
+// Native double-click support for immediate clearing
+btnClear.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const text = editor.innerText || '';
+    if (text.trim()) {
+        executeClear();
+    }
 });
 
 // --------------------------------------------------------------------------
@@ -1184,6 +1325,9 @@ window.addEventListener('resize', hideFloatingMenu);
 document.addEventListener('mousedown', (e) => {
     if (floatingMenu && !floatingMenu.contains(e.target) && !editor.contains(e.target)) {
         hideFloatingMenu();
+    }
+    if (btnClear && !btnClear.contains(e.target)) {
+        resetClearButtonState();
     }
 });
 

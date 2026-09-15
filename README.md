@@ -6,8 +6,14 @@ A dedicated, distraction-free in-browser Voice Typing (Speech-to-Text) Studio wi
 - **Continuous Speech Recognition**:
   - Uses native Chromium `webkitSpeechRecognition` engine.
   - Auto-restarts continuously without unexpected cutoffs.
+  - **1-Minute Silence Auto-Stop**: Automatically stops recording if silence/inactivity continues for 1 minute (60s).
   - Supports Hindi (`hi-IN`), English (`en-IN`), and English (`en-US`).
   - Shortcut: **`Alt + V`** or **`F8`** to toggle recording.
+- **Comfortable Viewport Overscroll & Center View**:
+  - Generous bottom overscroll margin (`calc(55vh + 80px)`) so the last typed or spoken line can always be scrolled to the vertical center of the screen with plenty of breathing room underneath.
+  - Real-time speech smoothly centers active text instead of sticking to the bottom edge.
+- **Safe Double-Click Clear Protection**:
+  - Requires a double-click (or two consecutive confirmation clicks within 2.5 seconds) to clear the workspace, preventing accidental data loss.
 - **Smart Punctuation & Silence Countdown**:
   - Automatically appends a comma on natural pauses.
   - Converts comma to full stop (`।` in Hindi, `.` in English) after 4 seconds of silence.
