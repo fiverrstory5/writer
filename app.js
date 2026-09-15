@@ -642,31 +642,15 @@ function scrollActiveTextToCenter() {
         return;
     }
 
-    // 2. Locate the end of the text/content using DOM Range
-    if (editor.lastChild) {
-        try {
-            const range = document.createRange();
-            range.selectNodeContents(editor.lastChild);
-            range.collapse(false);
-            const rect = range.getBoundingClientRect();
-            const containerRect = scrollContainer.getBoundingClientRect();
-            if (rect.top > 0 || rect.bottom > 0) {
-                const offsetInContainer = rect.top - containerRect.top;
-                const targetScroll = scrollContainer.scrollTop + offsetInContainer - (containerRect.height / 2);
-                scrollContainer.scrollTo({
-                    top: Math.max(0, targetScroll),
-                    behavior: 'smooth'
-                });
-                return;
-            }
-        } catch (e) {}
+    // 2. Use an invisible anchor span placed at the end of the content to reliably center
+    let anchor = document.getElementById('caretScrollAnchor');
+    if (!anchor) {
+        anchor = document.createElement('span');
+        anchor.id = 'caretScrollAnchor';
+        anchor.style.cssText = 'display:inline-block;width:0;height:1px;visibility:hidden;pointer-events:none;';
     }
-
-    // 3. Fallback to scrolling container
-    scrollContainer.scrollTo({
-        top: scrollContainer.scrollHeight,
-        behavior: 'smooth'
-    });
+    editor.appendChild(anchor);
+    anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function getFullStopSymbol() {
@@ -845,7 +829,36 @@ function updateStats() {
     lblCharCount.textContent = `${chars} character${chars === 1 ? '' : 's'}`;
 }
 
-editor.addEventListener('input', updateStats);
+function keepCaretCenteredOnTyping() {
+    try {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        let rect = range.getBoundingClientRect();
+        if ((!rect || (rect.top === 0 && rect.bottom === 0)) && range.startContainer) {
+            const el = range.startContainer.nodeType === Node.ELEMENT_NODE ? 
+                       range.startContainer : range.startContainer.parentElement;
+            if (el && editor.contains(el)) {
+                rect = el.getBoundingClientRect();
+            }
+        }
+        // If caret is in the lower portion of the screen (below 55% of viewport height)
+        if (rect && rect.top > window.innerHeight * 0.55) {
+            scrollActiveTextToCenter();
+        }
+    } catch (e) {}
+}
+
+editor.addEventListener('input', () => {
+    updateStats();
+    keepCaretCenteredOnTyping();
+});
+
+editor.addEventListener('keyup', (e) => {
+    if (['Enter', 'ArrowDown', 'PageDown'].includes(e.key)) {
+        keepCaretCenteredOnTyping();
+    }
+});
 
 // --------------------------------------------------------------------------
 // 4. Utility Actions (Copy, Save, Clear)
