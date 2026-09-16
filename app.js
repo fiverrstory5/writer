@@ -929,53 +929,374 @@ btnWriterClear.addEventListener('dblclick', (e) => {
     if ((writerEditor.innerText || '').trim()) executeWriterClear();
 });
 
-// Contextual Quick Selection Menu (Writer)
-function hideFloatingMenu() {
-    if (!floatingMenu) return;
-    floatingMenu.classList.remove('visible');
+// --------------------------------------------------------------------------
+// 4. Floating Contextual Action Menu (Selection & Single-Click Caret Popup)
+// --------------------------------------------------------------------------
+let caretMenuTimer = null;
+
+function clearCaretMenuTimer() {
+    if (caretMenuTimer) {
+        clearTimeout(caretMenuTimer);
+        caretMenuTimer = null;
+    }
 }
 
-writerEditor.addEventListener('mouseup', () => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) {
+function hideFloatingMenu() {
+    clearCaretMenuTimer();
+    if (!floatingMenu) return;
+    floatingMenu.classList.remove('visible');
+    floatingMenu.classList.remove('placed-bottom');
+}
+
+function positionFloatingMenu(centerX, anchorTop, anchorBottom) {
+    if (!floatingMenu) return;
+
+    floatingMenu.style.visibility = 'hidden';
+    floatingMenu.classList.add('visible');
+
+    const menuWidth = floatingMenu.offsetWidth || 160;
+    const menuHeight = floatingMenu.offsetHeight || 38;
+
+    const margin = 12;
+    let left = centerX - menuWidth / 2;
+    left = Math.max(margin, Math.min(window.innerWidth - menuWidth - margin, left));
+
+    let top = anchorTop - menuHeight - 10;
+    let placedBottom = false;
+
+    // Avoid collision with floating top toolbar (around top: 16px to 65px)
+    if (top < 75) {
+        top = anchorBottom + 10;
+        placedBottom = true;
+    }
+
+    if (top + menuHeight > window.innerHeight - 50) {
+        top = Math.max(75, window.innerHeight - menuHeight - 50);
+    }
+
+    floatingMenu.style.left = `${Math.round(left)}px`;
+    floatingMenu.style.top = `${Math.round(top)}px`;
+
+    if (placedBottom) {
+        floatingMenu.classList.add('placed-bottom');
+    } else {
+        floatingMenu.classList.remove('placed-bottom');
+    }
+
+    floatingMenu.style.visibility = 'visible';
+}
+
+function showFloatingMenuForSelection(range) {
+    if (!range || !floatingMenu) return;
+    clearCaretMenuTimer();
+    savedSelectionRange = range.cloneRange();
+
+    btnFloatCopy.classList.remove('hidden');
+    btnFloatDelete.classList.remove('hidden');
+    btnFloatPaste.classList.remove('hidden');
+
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+        const clientRects = range.getClientRects();
+        if (clientRects.length > 0) {
+            const first = clientRects[0];
+            positionFloatingMenu(first.left + first.width / 2, first.top, first.bottom);
+            return;
+        }
         hideFloatingMenu();
         return;
     }
-    const range = sel.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-        floatingMenu.style.top = `${Math.max(60, rect.top - 42)}px`;
-        floatingMenu.style.left = `${Math.max(20, rect.left + rect.width / 2 - 60)}px`;
-        floatingMenu.classList.add('visible');
+
+    positionFloatingMenu(rect.left + rect.width / 2, rect.top, rect.bottom);
+}
+
+function showFloatingMenuForCaret(clickX, clickY) {
+    if (!floatingMenu) return;
+    clearCaretMenuTimer();
+
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    savedSelectionRange = sel.getRangeAt(0).cloneRange();
+
+    btnFloatCopy.classList.add('hidden');
+    btnFloatDelete.classList.add('hidden');
+    btnFloatPaste.classList.remove('hidden');
+
+    const rect = savedSelectionRange.getBoundingClientRect();
+    let x = clickX;
+    let top = clickY;
+    let bottom = clickY;
+
+    if (rect.height > 0) {
+        x = rect.left;
+        top = rect.top;
+        bottom = rect.bottom;
+    }
+
+    positionFloatingMenu(x, top, bottom);
+
+    // Auto-dismiss single-click caret popup after 1 second if user does not interact
+    caretMenuTimer = setTimeout(() => {
+        hideFloatingMenu();
+    }, 1000);
+}
+
+// Pause/resume 1-second auto-dismiss on mouse hover over floating menu
+if (floatingMenu) {
+    floatingMenu.addEventListener('mouseenter', () => {
+        clearCaretMenuTimer();
+    });
+
+    floatingMenu.addEventListener('mouseleave', () => {
+        if (floatingMenu.classList.contains('visible') && btnFloatCopy.classList.contains('hidden')) {
+            clearCaretMenuTimer();
+            caretMenuTimer = setTimeout(() => {
+                hideFloatingMenu();
+            }, 1000);
+        }
+    });
+}
+
+// Prevent buttons on floating menu from stealing focus or clearing selection
+[floatingMenu, btnFloatCopy, btnFloatPaste, btnFloatDelete].forEach(el => {
+    if (el) {
+        el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+        });
     }
 });
 
-btnFloatCopy.addEventListener('click', async () => {
-    const selText = window.getSelection().toString();
-    if (selText) {
-        await navigator.clipboard.writeText(selText);
-        showToast('Selection copied');
+// Copy Selected Text
+btnFloatCopy.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sel = window.getSelection();
+    const text = sel ? sel.toString() : (savedSelectionRange ? savedSelectionRange.toString() : '');
+    if (text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('Copied');
+        } catch (err) {
+            showToast('Copy failed');
+        }
+    }
+    hideFloatingMenu();
+});
+
+// Delete Selected Text
+btnFloatDelete.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sel = window.getSelection();
+    if (savedSelectionRange) {
+        sel.removeAllRanges();
+        sel.addRange(savedSelectionRange);
+        savedSelectionRange.deleteContents();
+        updateWriterStats();
+        showToast('Deleted');
+    } else if (sel && !sel.isCollapsed) {
+        sel.deleteFromDocument();
+        updateWriterStats();
+        showToast('Deleted');
+    }
+    hideFloatingMenu();
+});
+
+// Helper: Inspect boundary characters before and after insertion range
+function getCharBeforeRange(range, container) {
+    if (!range || !container) return null;
+    try {
+        const preRange = document.createRange();
+        preRange.setStart(container, 0);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const str = preRange.toString();
+        return str.length > 0 ? str.slice(-1) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getCharAfterRange(range, container) {
+    if (!range || !container) return null;
+    try {
+        const postRange = document.createRange();
+        postRange.setStart(range.endContainer, range.endOffset);
+        postRange.setEnd(container, container.childNodes.length);
+        const str = postRange.toString();
+        return str.length > 0 ? str.charAt(0) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Helper: Ensure pasted text has automatic spacing if words would collide
+function formatPastedTextWithSmartSpaces(rawText, range, container) {
+    if (!rawText) return rawText;
+    let text = rawText;
+
+    const charBefore = range ? getCharBeforeRange(range, container) : null;
+    const charAfter = range ? getCharAfterRange(range, container) : null;
+
+    // Preceding check: if charBefore exists and is not whitespace, and text doesn't start with whitespace
+    if (charBefore !== null && !/\s/.test(charBefore) && !/^\s/.test(text)) {
+        // Don't add leading space if pasted text starts with punctuation that attaches to previous word
+        if (!/^[.,!?;:।%')\]}]/.test(text)) {
+            text = ' ' + text;
+        }
+    }
+
+    // Following check: if charAfter exists and is not whitespace, and text doesn't end with whitespace
+    if (charAfter !== null && !/\s/.test(charAfter) && !/\s$/.test(text)) {
+        // Don't add trailing space if charAfter is punctuation that attaches to pasted word
+        if (!/^[.,!?;:।%')\]}]/.test(charAfter)) {
+            text = text + ' ';
+        }
+    }
+
+    return text;
+}
+
+// Paste Clipboard Text (Replaces selection OR inserts at caret with smart spacing)
+btnFloatPaste.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearCaretMenuTimer();
+
+    let rawText = '';
+    try {
+        rawText = await navigator.clipboard.readText();
+    } catch (err) {
+        console.warn('Clipboard read error:', err);
+        showToast('Clipboard access needed');
+        hideFloatingMenu();
+        return;
+    }
+
+    if (!rawText) {
+        showToast('Clipboard is empty');
+        hideFloatingMenu();
+        return;
+    }
+
+    const sel = window.getSelection();
+    let range = savedSelectionRange;
+    if (!range && sel && sel.rangeCount > 0) {
+        range = sel.getRangeAt(0);
+    }
+
+    if (range) {
+        writerEditor.focus();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        // Format with smart spaces so adjacent words never stick together
+        const finalText = formatPastedTextWithSmartSpaces(rawText, range, writerEditor);
+
+        // Delete any existing selected content
+        range.deleteContents();
+
+        // Insert new text
+        const textNode = document.createTextNode(finalText);
+        range.insertNode(textNode);
+
+        // Advance cursor to end of pasted text
+        range.setStartAfter(textNode);
+        range.setEndAfter(textNode);
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        updateWriterStats();
+        showToast('Pasted');
+    } else {
+        writerEditor.focus();
+        const finalText = formatPastedTextWithSmartSpaces(rawText, null, writerEditor);
+        document.execCommand('insertText', false, finalText);
+        updateWriterStats();
+        showToast('Pasted');
+    }
+
+    hideFloatingMenu();
+});
+
+// Intercept standard Paste (Ctrl+V / Context Menu Paste) for identical smart spacing
+writerEditor.addEventListener('paste', (e) => {
+    hideFloatingMenu();
+    const clipData = (e.clipboardData || window.clipboardData)?.getData('text');
+    if (!clipData) return;
+
+    e.preventDefault();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+
+    const finalText = formatPastedTextWithSmartSpaces(clipData, range, writerEditor);
+    range.deleteContents();
+    const textNode = document.createTextNode(finalText);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.setEndAfter(textNode);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    updateWriterStats();
+    showToast('Pasted');
+});
+
+// Detect Selection or Single Click inside Editor
+writerEditor.addEventListener('mouseup', (e) => {
+    // If clicked on a replaced word, do not show floating menu (word toggle handles itself)
+    if (e.target.closest('.replaced-word')) {
+        hideFloatingMenu();
+        return;
+    }
+
+    setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !writerEditor.contains(sel.anchorNode)) {
+            hideFloatingMenu();
+            return;
+        }
+
+        const selectedText = sel.toString().trim();
+        if (!sel.isCollapsed && selectedText.length > 0) {
+            showFloatingMenuForSelection(sel.getRangeAt(0));
+        } else {
+            showFloatingMenuForCaret(e.clientX, e.clientY);
+        }
+    }, 15);
+});
+
+// Handle Keyboard Text Selection (Shift + Arrows, Ctrl + A)
+writerEditor.addEventListener('keyup', (e) => {
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+
+    setTimeout(() => {
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.toString().trim().length > 0 && writerEditor.contains(sel.anchorNode)) {
+            showFloatingMenuForSelection(sel.getRangeAt(0));
+        } else {
+            hideFloatingMenu();
+        }
+    }, 15);
+});
+
+// Auto-hide on typing or scrolling
+writerEditor.addEventListener('input', hideFloatingMenu);
+writerEditor.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        hideFloatingMenu();
+    } else if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) {
         hideFloatingMenu();
     }
 });
 
-btnFloatPaste.addEventListener('click', async () => {
-    try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-            document.execCommand('insertText', false, text);
-            updateWriterStats();
-            hideFloatingMenu();
-        }
-    } catch (e) {}
-});
+if (writerScrollContainer) {
+    writerScrollContainer.addEventListener('scroll', hideFloatingMenu);
+}
+window.addEventListener('scroll', hideFloatingMenu);
+window.addEventListener('resize', hideFloatingMenu);
 
-btnFloatDelete.addEventListener('click', () => {
-    document.execCommand('delete');
-    updateWriterStats();
-    hideFloatingMenu();
-});
-
+// Hide when clicking outside editor and outside floating menu
 document.addEventListener('mousedown', (e) => {
     if (floatingMenu && !floatingMenu.contains(e.target) && !writerEditor.contains(e.target)) {
         hideFloatingMenu();
