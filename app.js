@@ -1756,11 +1756,20 @@ function stopReaderPlayback() {
     readerSentences.forEach(s => s.element.classList.remove('active'));
 }
 
+/**
+ * Converts whole English words written entirely in uppercase (e.g. "HELLO", "NASA")
+ * to lowercase while preserving mixed-case or capitalized words (e.g. "Hello", "iPhone").
+ */
+function lowercaseAllCapsEnglishWords(text) {
+    if (!text) return '';
+    return String(text).replace(/\b[A-Z]+\b/g, (word) => word.toLowerCase());
+}
+
 function handleReaderPastedText(rawText) {
     if (!rawText || !rawText.trim()) return;
 
     stopReaderPlayback();
-    rawOriginalText = rawText.trim();
+    rawOriginalText = lowercaseAllCapsEnglishWords(rawText.trim());
     cleanedText = cleanTextForTTS(rawOriginalText);
 
     const activeText = isCleanMode ? (cleanedText || rawOriginalText) : rawOriginalText;
